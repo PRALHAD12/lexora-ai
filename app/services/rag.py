@@ -1,6 +1,6 @@
 """
 rag.py
-Core RAG logic — Indian Legal Framework Edition.
+Core RAG logic — Indian Legal Framework Edition with Pre-Indexed Statutory Knowledge Base.
 
 Specialized for Indian Contract Law:
 - The Indian Contract Act, 1872
@@ -18,6 +18,7 @@ from app.config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from app.services.chunker import chunk_text
 from app.services.embeddings import get_embedding, get_embeddings_batch
 from app.services.vectorstore import save_chunks, search_similar_chunks, get_contract_chunks
+from app.services.seed_indian_law import search_indian_law_statutes
 
 
 # ─── INDEXING ────────────────────────────────────────────────────────────────
@@ -44,7 +45,7 @@ ANALYSIS_KEYWORDS = {
     "analyze", "analysis", "summary", "summarize", "overview", "review",
     "audit", "breakdown", "explain", "risks", "risk", "clauses", "tell me about",
     "what is this contract", "what does this contract", "contract details",
-    "compliance", "stamp duty", "indian law", "arbitration"
+    "compliance", "stamp duty", "indian law", "arbitration", "research"
 }
 
 
@@ -64,7 +65,7 @@ def _is_pure_greeting(question: str) -> bool:
 
 async def _build_rag_context_and_prompt(contract_id: str, question: str):
     """
-    Retrieves the most relevant chunks and constructs the Indian Legal Copilot prompt.
+    Retrieves contract chunks + Indian statutory law chunks from ChromaDB.
     """
     is_analysis = _is_analysis_query(question)
     is_greeting = _is_pure_greeting(question)
@@ -72,50 +73,68 @@ async def _build_rag_context_and_prompt(contract_id: str, question: str):
     if is_greeting:
         greeting_text = (
             "Namaste! I am **Lexora Origin v1 (India Edition)**, your AI Indian Legal Copilot. ⚖️🇮🇳\n\n"
-            "I specialize in Indian contract law and statutory compliance. You can ask me to:\n"
+            "I specialize in Indian contract law, statutory compliance, and legal research. You can ask me to:\n"
             "• **Audit & Analyze** this agreement under the **Indian Contract Act, 1872**\n"
+            "• **Perform Legal Research** on Indian statutes (Section 27 non-compete, MSME 45-day rules, Stamp Duty)\n"
             "• **Verify terms & penalties** (Consideration in ₹, interest rates, notice periods)\n"
-            "• **Check statutory risks** (Section 27 non-compete validity, MSME Act 45-day payment rules, uncapped indemnity)\n"
             "• **Review Arbitration & Jurisdiction** (Seat vs. Venue under Arbitration & Conciliation Act, 1996)\n"
-            "• **Draft court-tested legal clauses** tailored to Indian courts\n\n"
-            "How can I assist you with this contract today?"
+            "• **Draft court-tested legal clauses** tailored to Indian High Courts & Supreme Court\n\n"
+            "How can I assist you today?"
         )
         return None, [], True, greeting_text
 
-    # Retrieve Chunks
+    # 1. Retrieve Contract Chunks
+    query_embedding = await get_embedding(question)
+
     if is_analysis:
         doc_data = get_contract_chunks(contract_id, limit=12)
         all_chunks = doc_data.get("chunks", [])
         
         if all_chunks:
             all_chunks = sorted(all_chunks, key=lambda x: x.get("chunk_index", 0))
-            relevant_chunks = [
+            contract_chunks = [
                 {"text": c["text"], "chunk_index": c.get("chunk_index", idx)}
                 for idx, c in enumerate(all_chunks)
             ]
         else:
-            query_embedding = await get_embedding(question)
-            relevant_chunks = search_similar_chunks(contract_id, query_embedding, top_k=8)
+            contract_chunks = search_similar_chunks(contract_id, query_embedding, top_k=8)
     else:
-        query_embedding = await get_embedding(question)
-        relevant_chunks = search_similar_chunks(contract_id, query_embedding, top_k=6)
+        contract_chunks = search_similar_chunks(contract_id, query_embedding, top_k=6)
 
-    if not relevant_chunks:
-        context = "No contract text found in database."
+    # 2. Retrieve Relevant Indian Statutory Chunks from ChromaDB
+    statute_chunks = search_indian_law_statutes(query_embedding, top_k=3)
+
+    # Format Contract Context
+    if not contract_chunks:
+        contract_context = "No specific contract excerpts found."
     else:
-        context = "\n\n---\n\n".join(
-            [f"[Excerpt {i+1} - Chunk {chunk['chunk_index']}]:\n{chunk['text']}" 
-             for i, chunk in enumerate(relevant_chunks)]
+        contract_context = "\n\n---\n\n".join(
+            [f"[Contract Excerpt {i+1} - Chunk {chunk['chunk_index']}]:\n{chunk['text']}" 
+             for i, chunk in enumerate(contract_chunks)]
         )
 
-    # Build Prompt Based on Indian Legal Framework
+    # Format Statute Context
+    if not statute_chunks:
+        statute_context = "General Indian Contract Law Principles apply."
+    else:
+        statute_context = "\n\n---\n\n".join(
+            [f"[Indian Statute Authority - {s.get('section', '')}]:\n{s.get('text', '')}" 
+             for s in statute_chunks]
+        )
+
+    # 3. Build Prompt Based on Indian Legal Framework
     if is_analysis:
         prompt = f"""You are Lexora Origin v1 (India Edition), an elite Indian Legal Intelligence Engine and expert counsel.
 Perform an executive-level LEGAL ANALYSIS of this agreement under the Indian Legal Framework (Indian Contract Act 1872, Arbitration & Conciliation Act 1996, MSMED Act 2006, Stamp Act, DPDP Act 2023).
 
+RELEVANT INDIAN STATUTORY LAW & PRECEDENTS (FROM CHROMADB KNOWLEDGE BASE):
+\"\"\"
+{statute_context}
+\"\"\"
+
 CONTRACT EXCERPTS:
 \"\"\"
-{context}
+{contract_context}
 \"\"\"
 
 USER REQUEST:
@@ -153,28 +172,33 @@ INDIAN LEGAL ANALYSIS:"""
     else:
         prompt = f"""You are Lexora Origin v1 (India Edition), an elite Indian legal AI copilot.
 
+RELEVANT INDIAN STATUTORY LAW & PRECEDENTS (FROM CHROMADB KNOWLEDGE BASE):
+\"\"\"
+{statute_context}
+\"\"\"
+
 CONTRACT EXCERPTS:
 \"\"\"
-{context}
+{contract_context}
 \"\"\"
 
 USER REQUEST / QUESTION:
 \"{question}\"
 
 INSTRUCTIONS:
-1. Answer accurately based on the excerpts, applying Indian legal context (Indian Contract Act 1872, Arbitration Act 1996, INR ₹ currency norms).
+1. Answer accurately based on the statutory authorities and contract excerpts, applying Indian legal context (Indian Contract Act 1872, Arbitration Act 1996, INR ₹ currency norms).
 2. If drafting or modifying a clause (e.g., "Draft an arbitration clause", "Add an indemnity clause", "Draft confidentiality clause"):
    - Provide complete, attorney-grade legal clauses fully enforceable in Indian High Courts and Supreme Court of India.
    - For employment non-competes, advise that post-employment restrictions are void under Section 27 of ICA 1872, and draft a robust Non-Solicitation and Confidentiality provision instead.
-3. If factual terms are missing in the contract:
-   - Note the omission clearly and recommend a standard Indian market practice clause.
+3. If doing legal research:
+   - Provide a structured Legal Research Memo citing relevant Sections of Indian Acts and landmark Supreme Court precedents.
 
 ANSWER:"""
 
     sources = [
         {"text": c["text"], "chunk_index": c["chunk_index"]}
-        for c in relevant_chunks
-    ] if relevant_chunks else []
+        for c in contract_chunks
+    ] if contract_chunks else []
 
     return prompt, sources, False, ""
 
