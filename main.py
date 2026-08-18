@@ -6,9 +6,12 @@ This is a FastAPI server that runs on port 8000.
 Your Node.js backend (port 5000) calls this service internally.
 
 Routes:
-  POST /index  — Index a contract (chunk + embed + store)
-  POST /ask    — Ask a question about a contract (RAG query)
-  GET  /health — Health check
+  POST /api/rag/index        — Index a contract (chunk + embed + store)
+  POST /api/rag/ask          — Ask a question about a contract (RAG query)
+  POST /api/rag/generate     — General AI generation fallback
+  GET  /api/rag/stats        — Vector database stats
+  GET  /api/rag/collections  — List all indexed contract collections
+  GET  /health               — Health check
 """
 
 from fastapi import FastAPI
@@ -16,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routes.index_route import router as index_router
 from app.routes.ask_route import router as ask_router
 from app.routes.generate_route import router as generate_router
+from app.routes.debug_route import router as debug_router
 from app.config import PORT, NODE_BACKEND_URL
 
 # ─── Create FastAPI App ───────────────────────────────────────────────────────
@@ -38,6 +42,7 @@ app.add_middleware(
 app.include_router(index_router, prefix="/api/rag", tags=["RAG"])
 app.include_router(ask_router, prefix="/api/rag", tags=["RAG"])
 app.include_router(generate_router, prefix="/api/rag", tags=["RAG"])
+app.include_router(debug_router, prefix="/api/rag", tags=["ChromaDB Inspection"])
 
 
 # ─── Health Check ────────────────────────────────────────────────────────────

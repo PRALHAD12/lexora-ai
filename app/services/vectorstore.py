@@ -105,3 +105,61 @@ def delete_contract_index(contract_id: str):
         _client.delete_collection(name=collection_name)
     except Exception:
         pass  # collection may not exist, that's fine
+
+
+def list_all_collections() -> list[dict]:
+    """
+    List all collections stored in ChromaDB with their chunk counts.
+    """
+    cols = _client.list_collections()
+    summary = []
+    for col in cols:
+        contract_id = col.name.replace("contract_", "")
+        summary.append({
+            "collection_name": col.name,
+            "contract_id": contract_id,
+            "total_chunks": col.count(),
+        })
+    return summary
+
+
+def get_contract_chunks(contract_id: str, limit: int = 50) -> dict:
+    """
+    Retrieve all chunks and metadata stored for a specific contract.
+    """
+    collection = _get_collection(contract_id)
+    count = collection.count()
+    if count == 0:
+        return {"contract_id": contract_id, "total_chunks": 0, "chunks": []}
+
+    data = collection.get(limit=limit, include=["documents", "metadatas"])
+    chunks = []
+    for idx, doc in enumerate(data["documents"]):
+        meta = data["metadatas"][idx] if data["metadatas"] else {}
+        chunks.append({
+            "id": data["ids"][idx],
+            "chunk_index": meta.get("chunk_index", idx),
+            "start_index": meta.get("start_index", 0),
+            "end_index": meta.get("end_index", 0),
+            "text": doc,
+        })
+
+    return {
+        "contract_id": contract_id,
+        "collection_name": f"contract_{contract_id.replace('-', '_')}",
+        "total_chunks": count,
+        "chunks": chunks,
+    }
+
+
+def get_chroma_stats() -> dict:
+    """
+    Return global statistics about stored vectors in ChromaDB.
+    """
+    cols = _client.list_collections()
+    total_chunks = sum(c.count() for c in cols)
+    return {
+        "total_indexed_contracts": len(cols),
+        "total_chunks_stored": total_chunks,
+        "database_path": CHROMA_DB_PATH,
+    }
