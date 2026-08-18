@@ -15,7 +15,7 @@ PORT = int(os.getenv("PORT", 8000))
 # Ollama
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.2")
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "lexora-origin:v1")
 
 # ChromaDB
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
