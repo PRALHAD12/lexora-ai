@@ -80,31 +80,37 @@ async def query_contract(contract_id: str, question: str) -> dict:
     )
 
     if not relevant_chunks:
-        return {
-            "answer": "I could not find any relevant content in this contract to answer your question.",
-            "sources": [],
-        }
+        context = "No specific contract excerpts found."
+    else:
+        context = "\n\n---\n\n".join(
+            [f"[Excerpt {i+1}]:\n{chunk['text']}" for i, chunk in enumerate(relevant_chunks)]
+        )
 
-    # Step 3 — Build context from the retrieved chunks
-    context = "\n\n---\n\n".join(
-        [f"[Excerpt {i+1}]:\n{chunk['text']}" for i, chunk in enumerate(relevant_chunks)]
-    )
+    # Step 3 — Intelligent Legal AI Copilot Prompt
+    prompt = f"""You are the Lexora Legal AI Copilot, an expert contract analysis and drafting assistant.
 
-    # Step 4 — Build the prompt
-    prompt = f"""You are a legal AI assistant for Lexora, a contract analysis platform.
-Answer the user's question based ONLY on the contract excerpts provided below.
-Be concise, clear, and professional.
-If the answer is not found in the excerpts, say exactly: "I could not find this information in the provided contract."
-Do NOT make up or guess information.
-
-CONTRACT EXCERPTS:
+DOCUMENT CONTEXT (EXCERPTS FROM CURRENT CONTRACT):
+\"\"\"
 {context}
+\"\"\"
 
-USER QUESTION: {question}
+USER REQUEST / QUESTION:
+\"{question}\"
 
-ANSWER:"""
+INSTRUCTIONS:
+1. If the user asks about factual terms in this contract (e.g., payment amounts, penalties, termination periods, parties, jurisdiction):
+   - Answer accurately based on the provided excerpts.
+   - Quote or reference the relevant terms or clauses.
+2. If the user asks you to draft a new clause, refine terms, or improve legal protections (e.g., "Add a non-compete clause", "Cap liability at $10k"):
+   - Draft the requested clause professionally, tailored to fit the current contract context.
+3. If the user greets you or asks general questions (e.g., "Hi", "Who are you?", "How can you help?"):
+   - Greet them warmly and explain how you can help analyze or edit this specific contract.
+4. If a specific factual term is asked for and not found anywhere in the excerpts:
+   - State clearly that the specific term is not mentioned in the provided contract excerpts, and offer a helpful legal suggestion.
 
-    # Step 5 — Call Ollama chat model
+RESPONSE:"""
+
+    # Step 4 — Call Ollama chat model
     answer = await _call_ollama_chat(prompt)
 
     return {
@@ -112,7 +118,7 @@ ANSWER:"""
         "sources": [
             {"text": c["text"], "chunk_index": c["chunk_index"]}
             for c in relevant_chunks
-        ],
+        ] if relevant_chunks else [],
     }
 
 
@@ -128,7 +134,7 @@ async def _call_ollama_chat(prompt: str) -> str:
             json={
                 "model": OLLAMA_CHAT_MODEL,
                 "prompt": prompt,
-                "stream": False,  # get the full response at once
+                "stream": False,
             },
         )
         response.raise_for_status()
