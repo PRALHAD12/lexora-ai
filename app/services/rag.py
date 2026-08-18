@@ -1,11 +1,13 @@
 """
 rag.py
-Core RAG logic — ties everything together.
+Core RAG logic — Indian Legal Framework Edition.
 
-This file has three main jobs:
-1. index_contract()        — called when a contract is uploaded or saved
-2. query_contract()        — non-streaming Q&A
-3. stream_query_contract() — real-time token-by-token streaming Q&A (SSE)
+Specialized for Indian Contract Law:
+- The Indian Contract Act, 1872
+- The Arbitration and Conciliation Act, 1996
+- The Indian Stamp Act, 1899 & Registration Act, 1908
+- The MSMED Act, 2006 (MSME 45-day payment rules)
+- The Digital Personal Data Protection (DPDP) Act, 2023 & IT Act, 2000
 """
 
 import httpx
@@ -23,11 +25,6 @@ from app.services.vectorstore import save_chunks, search_similar_chunks, get_con
 async def index_contract(contract_id: str, text: str, title: str = "") -> int:
     """
     Index a contract for RAG.
-
-    Steps:
-    1. Split the contract text into chunks
-    2. Generate an embedding for each chunk
-    3. Save chunks + embeddings to ChromaDB
     """
     chunks = chunk_text(text, chunk_size=500, overlap=100)
 
@@ -46,40 +43,42 @@ async def index_contract(contract_id: str, text: str, title: str = "") -> int:
 ANALYSIS_KEYWORDS = {
     "analyze", "analysis", "summary", "summarize", "overview", "review",
     "audit", "breakdown", "explain", "risks", "risk", "clauses", "tell me about",
-    "what is this contract", "what does this contract", "contract details"
+    "what is this contract", "what does this contract", "contract details",
+    "compliance", "stamp duty", "indian law", "arbitration"
 }
 
 
 def _is_analysis_query(question: str) -> bool:
-    """Check if the user is asking for a general/holistic contract analysis or review."""
+    """Check if the user is asking for a holistic contract analysis or legal audit."""
     q_lower = question.lower().strip()
     return any(kw in q_lower for kw in ANALYSIS_KEYWORDS)
 
 
 def _is_pure_greeting(question: str) -> bool:
-    """Check if the message is strictly a greeting without any command."""
+    """Check if the message is strictly a greeting."""
     q_clean = re.sub(r"[^a-zA-Z\s]", "", question.lower()).strip()
-    return q_clean in {"hi", "hello", "hey", "good morning", "good evening", "greetings"}
+    return q_clean in {"hi", "hello", "hey", "good morning", "good evening", "greetings", "namaste"}
 
 
 # ─── PROMPT & CONTEXT BUILDER ─────────────────────────────────────────────────
 
 async def _build_rag_context_and_prompt(contract_id: str, question: str):
     """
-    Retrieves the most relevant chunks and constructs the specialized prompt.
+    Retrieves the most relevant chunks and constructs the Indian Legal Copilot prompt.
     """
     is_analysis = _is_analysis_query(question)
     is_greeting = _is_pure_greeting(question)
 
     if is_greeting:
         greeting_text = (
-            "Hello! I am **Lexora Origin v1**, your AI Legal Copilot. ⚖️\n\n"
-            "I have analyzed this contract and am ready to assist you. You can ask me to:\n"
-            "• **Analyze or summarize** the entire agreement\n"
-            "• **Check specific terms** (penalties, payment, notice periods, jurisdiction)\n"
-            "• **Identify risks** (liability caps, indemnification, termination traps)\n"
-            "• **Draft or refine clauses** to protect your interests\n\n"
-            "How can I help you with this document today?"
+            "Namaste! I am **Lexora Origin v1 (India Edition)**, your AI Indian Legal Copilot. ⚖️🇮🇳\n\n"
+            "I specialize in Indian contract law and statutory compliance. You can ask me to:\n"
+            "• **Audit & Analyze** this agreement under the **Indian Contract Act, 1872**\n"
+            "• **Verify terms & penalties** (Consideration in ₹, interest rates, notice periods)\n"
+            "• **Check statutory risks** (Section 27 non-compete validity, MSME Act 45-day payment rules, uncapped indemnity)\n"
+            "• **Review Arbitration & Jurisdiction** (Seat vs. Venue under Arbitration & Conciliation Act, 1996)\n"
+            "• **Draft court-tested legal clauses** tailored to Indian courts\n\n"
+            "How can I assist you with this contract today?"
         )
         return None, [], True, greeting_text
 
@@ -109,12 +108,12 @@ async def _build_rag_context_and_prompt(contract_id: str, question: str):
              for i, chunk in enumerate(relevant_chunks)]
         )
 
-    # Build Prompt
+    # Build Prompt Based on Indian Legal Framework
     if is_analysis:
-        prompt = f"""You are Lexora Origin v1, an elite legal intelligence model and contract analysis copilot.
-Perform a thorough, executive-level LEGAL ANALYSIS of the contract based on the excerpts provided below.
+        prompt = f"""You are Lexora Origin v1 (India Edition), an elite Indian Legal Intelligence Engine and expert counsel.
+Perform an executive-level LEGAL ANALYSIS of this agreement under the Indian Legal Framework (Indian Contract Act 1872, Arbitration & Conciliation Act 1996, MSMED Act 2006, Stamp Act, DPDP Act 2023).
 
-CONTRACT CONTEXT:
+CONTRACT EXCERPTS:
 \"\"\"
 {context}
 \"\"\"
@@ -122,31 +121,39 @@ CONTRACT CONTEXT:
 USER REQUEST:
 \"{question}\"
 
-Provide a structured, professional legal analysis using this clear format:
+Provide a structured, partner-grade Indian legal analysis in this exact format:
 
-### 📋 1. Executive Summary & Purpose
-Provide a concise overview of what this agreement governs and its primary intent.
+### 📋 1. Executive Summary & Nature of Agreement
+Define the legal nature of this contract under Indian law (e.g. Leave & License, Commercial Lease, MSA, Service Contract) and its primary commercial intent.
 
-### 👥 2. Key Parties & Duration
-Identify the contracting parties, effective date, and term length.
+### 👥 2. Contracting Parties & Term
+List the parties, execution date, effective date, and tenure of the agreement.
 
-### 💰 3. Financial & Payment Terms
-Detail the payment amounts, due dates, and any late payment fees or penalties.
+### 💰 3. Consideration & Financial Terms
+Detail the payment consideration (in INR ₹ where applicable), payment schedules, GST/TDS provisions, and late payment interest or penalties.
 
-### ⚠️ 4. Key Risk Assessment & Red Flags
-Highlight critical liability, indemnification, termination rules, and potential exposure areas.
+### ⚠️ 4. Key Risk Assessment & Statutory Red Flags
+Highlight critical liability exposures under Indian Law:
+- Enforceability under Section 27 of Indian Contract Act (e.g., non-compete restrictions)
+- Liquidated damages vs. Penalty under Section 74 of Indian Contract Act
+- Indemnity and limitation of liability exposures
+- Termination lock-in periods or notice traps
 
-### ⚖️ 5. Governing Law & Dispute Resolution
-State the applicable jurisdiction and arbitration/court mechanism.
+### ⚖️ 5. Governing Law, Dispute Resolution & Arbitration
+Examine the dispute resolution mechanism (Arbitration under the Arbitration & Conciliation Act, 1996, Seat vs. Venue, and exclusive jurisdiction of Indian courts).
 
-### 💡 6. Strategic Legal Recommendations
-Provide 2-3 practical recommendations to improve or protect the client's interests.
+### 📜 6. Stamp Duty & Enforceability Advisory
+Provide practical guidance on required Stamp Duty under applicable State Stamp Laws (e.g., Maharashtra/Karnataka/Delhi Stamp Act) and registration requirements under the Registration Act, 1908.
 
-ANALYSIS:"""
+### 💡 7. Strategic Legal Recommendations
+Provide 2-3 actionable, high-impact suggestions to safeguard the client's interests.
+
+INDIAN LEGAL ANALYSIS:"""
+
     else:
-        prompt = f"""You are Lexora Origin v1, an elite AI legal copilot for contract review and drafting.
+        prompt = f"""You are Lexora Origin v1 (India Edition), an elite Indian legal AI copilot.
 
-CONTRACT CONTEXT:
+CONTRACT EXCERPTS:
 \"\"\"
 {context}
 \"\"\"
@@ -155,13 +162,12 @@ USER REQUEST / QUESTION:
 \"{question}\"
 
 INSTRUCTIONS:
-1. If the user asks about factual terms in this contract (e.g. payment terms, penalties, termination notice, indemnity, parties):
-   - Answer accurately based on the excerpts.
-   - Quote exact figures, timelines, and clause names where applicable.
-2. If the user asks you to draft or modify a legal clause (e.g. "Draft an NDA clause", "Add a non-compete clause"):
-   - Draft a complete, professional, attorney-grade legal clause tailored to the contract context.
-3. If a factual term is genuinely absent from the excerpts:
-   - State clearly that the term is not specified in the provided contract excerpts, and provide a recommended standard clause.
+1. Answer accurately based on the excerpts, applying Indian legal context (Indian Contract Act 1872, Arbitration Act 1996, INR ₹ currency norms).
+2. If drafting or modifying a clause (e.g., "Draft an arbitration clause", "Add an indemnity clause", "Draft confidentiality clause"):
+   - Provide complete, attorney-grade legal clauses fully enforceable in Indian High Courts and Supreme Court of India.
+   - For employment non-competes, advise that post-employment restrictions are void under Section 27 of ICA 1872, and draft a robust Non-Solicitation and Confidentiality provision instead.
+3. If factual terms are missing in the contract:
+   - Note the omission clearly and recommend a standard Indian market practice clause.
 
 ANSWER:"""
 
@@ -200,10 +206,6 @@ async def query_contract(contract_id: str, question: str) -> dict:
 async def stream_query_contract(contract_id: str, question: str) -> AsyncGenerator[str, None]:
     """
     Yields Server-Sent Events (SSE) for real-time token streaming.
-    Events formatted as:
-      data: {"type": "sources", "sources": [...]}
-      data: {"type": "token", "token": "word "}
-      data: {"type": "done"}
     """
     prompt, sources, is_greeting, greeting_text = await _build_rag_context_and_prompt(contract_id, question)
 
