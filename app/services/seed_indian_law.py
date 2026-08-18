@@ -17,33 +17,34 @@ INDIAN_LAW_COLLECTION_NAME = "indian_law_knowledge"
 async def seed_indian_law_knowledge(force_reseed: bool = False) -> int:
     """
     Check if 'indian_law_knowledge' collection exists and has chunks.
-    If not, chunk all Indian statutes, generate embeddings, and store in ChromaDB.
+    If not or if force_reseed=True, chunk all Indian statutes, generate embeddings, and store in ChromaDB.
     """
     try:
         try:
             collection = _client.get_collection(name=INDIAN_LAW_COLLECTION_NAME)
             count = collection.count()
-            if count > 0 and not force_reseed:
+            # If already has full corpus and not force_reseed, skip
+            if count >= len(INDIAN_LAW_STATUTES) * 2 and not force_reseed:
                 logger.info(f"Indian Law Knowledge Base already indexed ({count} chunks).")
                 return count
-            elif force_reseed:
+            elif count > 0 or force_reseed:
                 _client.delete_collection(name=INDIAN_LAW_COLLECTION_NAME)
         except Exception:
             pass
 
         collection = _client.create_collection(
             name=INDIAN_LAW_COLLECTION_NAME,
-            metadata={"description": "Indian Statutory Laws, Acts & Supreme Court Precedents", "hnsw:space": "cosine"}
+            metadata={"description": "Indian Statutory Laws, Supreme Court Precedents & Contract Templates", "hnsw:space": "cosine"}
         )
 
         all_chunks = []
         for stat in INDIAN_LAW_STATUTES:
-            # Chunk statute text with clean 400-char chunks
-            chunks = chunk_text(stat["text"], chunk_size=400, overlap=80)
+            chunks = chunk_text(stat["text"], chunk_size=450, overlap=90)
             for c in chunks:
                 c["act"] = stat["act"]
                 c["section"] = stat["section"]
                 c["title"] = stat["title"]
+                c["category"] = stat.get("category", "General")
                 all_chunks.append(c)
 
         if not all_chunks:
@@ -59,6 +60,7 @@ async def seed_indian_law_knowledge(force_reseed: bool = False) -> int:
                 "act": c["act"],
                 "section": c["section"],
                 "title": c["title"],
+                "category": c["category"],
             }
             for c in all_chunks
         ]
@@ -78,7 +80,7 @@ async def seed_indian_law_knowledge(force_reseed: bool = False) -> int:
         return 0
 
 
-def search_indian_law_statutes(query_embedding: list[float], top_k: int = 5) -> list[dict]:
+def search_indian_law_statutes(query_embedding: list[float], top_k: int = 4) -> list[dict]:
     """
     Search the 'indian_law_knowledge' collection for statutes/precedents relevant to the query.
     """
@@ -98,6 +100,7 @@ def search_indian_law_statutes(query_embedding: list[float], top_k: int = 5) -> 
                 "act": meta.get("act", ""),
                 "section": meta.get("section", ""),
                 "title": meta.get("title", ""),
+                "category": meta.get("category", ""),
                 "score": 1 - results["distances"][0][i],
             })
         return chunks
